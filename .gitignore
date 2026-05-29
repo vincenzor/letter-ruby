@@ -1,0 +1,12 @@
+# Ruby
+/.bundle/
+/vendor/bundle/
+/pkg/
+*.gem
+Gemfile.lock
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
