@@ -7,10 +7,11 @@ Gem::Specification.new do |spec|
   spec.version = Letterapp::VERSION
   spec.authors = ["letter.app"]
 
-  spec.summary = "Official Ruby client for letter.app - onboarding email drip campaigns."
-  spec.description = "Auto-batching Ruby client for letter.app: identify users, " \
-                     "track events, and group accounts over the ingestion API. " \
-                     "Retries, idempotency, zero runtime dependencies."
+  spec.summary = "Official Ruby client for letter.app - transactional email and onboarding drip campaigns."
+  spec.description = "Ruby client for letter.app: send transactional email " \
+                     "(with an ActionMailer delivery method), identify users, " \
+                     "track events, and group accounts. Auto-batching, retries, " \
+                     "idempotency, zero runtime dependencies."
   spec.homepage = "https://letter.app/docs/ruby-sdk"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 3.0"

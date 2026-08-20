@@ -12,23 +12,36 @@ module Letterapp
   DEFAULT_BASE_URL = "https://api.letter.app"
 
   # Raised for client misconfiguration and non-retryable API errors.
+  #
+  # +code+ is the API's machine-readable error code (bad_request, forbidden,
+  # ...). +reason+ is the finer-grained cause when a send was refused
+  # (suppressed, account_suspended, email_quota_exceeded, daily_cap,
+  # billing_required, provider_rejected), which is what tells "this one
+  # recipient is unreachable" apart from "our account is blocked".
   class Error < StandardError
-    attr_reader :status, :body
+    attr_reader :status, :body, :code, :reason
 
-    def initialize(message, status: nil, body: nil)
+    def initialize(message, status: nil, body: nil, payload: nil)
       super(message)
       @status = status
       @body = body
+      error = payload.is_a?(Hash) ? (payload["error"] || {}) : {}
+      @code = error["code"]
+      @reason = error["reason"]
     end
   end
 
-  # A Letter ingestion client.
+  # A Letter client.
   #
   # Long-running server (default): identify / group / track enqueue calls that a
   # background thread auto-batches and flushes every 100ms or 50 events. Call
   # +close+ before the process exits.
   #
   # Serverless: pass flush_at: 1 and call +flush+ at the end of each invocation.
+  #
+  # +send_email+ (transactional) sits outside that machinery: it always performs
+  # the request and returns the result. Batching a password reset would be a
+  # bug, not an optimization.
   class Client
     # @param api_key   [String] API key (Dashboard -> Settings -> API keys).
     # @param base_url  [String] API origin. Defaults to https://api.letter.app.
@@ -76,6 +89,38 @@ module Letterapp
     # Queue a track call (records an event).
     def track(user_id:, event:, properties: nil, timestamp: nil, message_id: nil)
       enqueue(serialize_track(user_id, event, properties, timestamp, message_id))
+    end
+
+    # Send one transactional email and return the parsed result Hash
+    # ("id", "messageId", "status", "replayed", ...).
+    #
+    # Named +send_email+ rather than +send+ because Object#send is Ruby's
+    # dynamic dispatch: shadowing it on a client object would break every
+    # +client.send(:private_method)+ and metaprogramming call in the host app.
+    #
+    # Never queued: the call performs the request and returns once the provider
+    # has accepted the message. Pass +idempotency_key+ wherever the call can be
+    # retried (a job with retries, a webhook handler): a replay returns the
+    # original send rather than mailing the recipient twice, and it is what
+    # makes retrying a 5xx safe. Without one this method does not retry,
+    # because a duplicate email is worse than a failed one.
+    #
+    # +from+ defaults to the project's sender and must be on a verified domain.
+    def send_email(to:, subject:, html: nil, text: nil, from: nil, from_name: nil,
+                   reply_to: nil, headers: nil, tag: nil, metadata: nil,
+                   idempotency_key: nil)
+      raise Error, "send_email: to is required" if blank?(to)
+      raise Error, "send_email: subject is required" if blank?(subject)
+      raise Error, "send_email: provide html, text, or both" if blank?(html) && blank?(text)
+
+      body = { "to" => to, "subject" => subject }
+      {
+        "html" => html, "text" => text, "from" => from, "fromName" => from_name,
+        "replyTo" => reply_to, "headers" => headers, "tag" => tag,
+        "metadata" => metadata, "idempotencyKey" => idempotency_key
+      }.each { |key, value| body[key] = value unless value.nil? }
+
+      request("/v1/send", body, max_retries: idempotency_key ? @max_retries : 0) || {}
     end
 
     # Send everything currently queued and block until it completes.
@@ -140,36 +185,52 @@ module Letterapp
       @on_error.call(e.is_a?(Error) ? e : Error.new(e.message))
     end
 
-    def request(path, body)
+    # POST +body+ to +path+, returning the decoded JSON response (or nil for an
+    # empty one). +max_retries+ defaults to the client setting; callers pass 0
+    # for requests that are not replay-safe (see +send_email+).
+    def request(path, body, max_retries: @max_retries)
       data = JSON.generate(body)
       last_err = nil
 
-      (0..@max_retries).each do |attempt|
+      (0..max_retries).each do |attempt|
         begin
           res = post(path, data)
           code = res.code.to_i
-          return if code >= 200 && code < 300
+          return decode_json(res.body) if code >= 200 && code < 300
 
-          if code == 429 && attempt < @max_retries
+          if code == 429 && attempt < max_retries
             sleep(retry_after(res))
             next
           end
-          if code >= 500 && attempt < @max_retries
+          if code >= 500 && attempt < max_retries
             sleep(backoff(attempt))
             next
           end
+
+          payload = decode_json(res.body)
+          message = payload&.dig("error", "message") || res.body
           raise Error.new(
-            "Request failed with #{code}: #{res.body}", status: code, body: res.body
+            "Request failed with #{code}: #{message}",
+            status: code, body: res.body, payload: payload
           )
         rescue Timeout::Error, IOError, SystemCallError, SocketError => e
           last_err = Error.new("Network error: #{e.message}")
-          raise last_err if attempt >= @max_retries
+          raise last_err if attempt >= max_retries
 
           sleep(backoff(attempt))
         end
       end
 
       raise(last_err || Error.new("Request failed for unknown reason"))
+    end
+
+    def decode_json(raw)
+      return nil if raw.nil? || raw.empty?
+
+      parsed = JSON.parse(raw)
+      parsed.is_a?(Hash) ? parsed : nil
+    rescue JSON::ParserError
+      nil
     end
 
     def post(path, data)

@@ -1,6 +1,6 @@
 ---
 name: letterapp-ruby
-description: Integrate letter.app (product email automation) into a Ruby app using the official letterapp gem. Install with bundler, read the API key from the environment, then identify users and track events so onboarding sequences can fire.
+description: Integrate letter.app (product email automation) into a Ruby or Rails app using the official letterapp gem. Install with bundler, read the API key from the environment, then identify users, track events so onboarding sequences can fire, and send transactional email (including via an ActionMailer delivery method).
 homepage: https://letter.app
 metadata: {"clawdbot":{"emoji":"✉️"}}
 ---
@@ -61,7 +61,38 @@ letter.flush
 
 # B2B: associate a user with an account/workspace.
 letter.group(user_id: uid, account_id: workspace.id, name: workspace.name)
+
+# Transactional email: sent immediately, never queued.
+letter.send_email(
+  to: user.email,
+  subject: "Reset your password",
+  html: render_to_string("mailers/reset"),
+  tag: "password-reset",
+  idempotency_key: "password-reset:#{token}"
+)
 ```
+
+---
+
+## Rails: ActionMailer
+
+For a Rails app that already has mailers, don't rewrite them. The gem
+registers a `:letter` delivery method, so switching providers is config only:
+
+```ruby
+# config/environments/production.rb
+config.action_mailer.delivery_method = :letter
+config.action_mailer.letter_settings = { api_key: ENV["LETTER_API_KEY"] }
+```
+
+Every mailer, view, and `deliver_later` keeps working. To make a delivery
+replay-safe, set the key in the mailer:
+
+```ruby
+headers["X-Letter-Idempotency-Key"] = "password-reset:#{token}"
+```
+
+Attachments raise, since the transactional API doesn't carry them.
 
 ---
 
@@ -77,6 +108,11 @@ letter.group(user_id: uid, account_id: workspace.id, name: workspace.name)
    identify and track line up to one contact.
 5. **base_url only for self-host/local.** Omit in production; it defaults to
    `https://api.letter.app`.
+6. **It's `send_email`, not `send`.** `Object#send` is Ruby's dynamic dispatch;
+   shadowing it would break metaprogramming in the host app.
+7. **`send_email` is not queued** and is unaffected by `flush_at`. Pass an
+   `idempotency_key:` anywhere the call can be retried; without one the client
+   won't retry a `5xx`, because a duplicate email is worse than a failed one.
 
 ---
 
@@ -87,6 +123,12 @@ Letterapp::Client.new(api_key:, base_url:, flush_at: 50, flush_interval: 0.1, ma
 letter.identify(user_id:, email: nil, traits: nil, timezone: nil, timestamp: nil, message_id: nil)
 letter.group(user_id:, account_id:, name: nil, traits: nil, timestamp: nil, message_id: nil)
 letter.track(user_id:, event:, properties: nil, timestamp: nil, message_id: nil)
+letter.send_email(to:, subject:, html: nil, text: nil, from: nil, from_name: nil,
+                  reply_to: nil, headers: nil, tag: nil, metadata: nil, idempotency_key: nil)
 letter.flush
 letter.close
 ```
+
+`Letterapp::Error` carries `#status`, `#code` and `#reason`. For sends, check
+`reason == "suppressed"` to distinguish an unreachable recipient from an
+account-level block worth alerting on.
