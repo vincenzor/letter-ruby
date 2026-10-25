@@ -19,10 +19,11 @@ Gem::Specification.new do |spec|
   spec.metadata = {
     "homepage_uri" => spec.homepage,
     "source_code_uri" => "https://github.com/vincenzor/letter-ruby",
+    "changelog_uri" => "https://github.com/vincenzor/letter-ruby/blob/main/CHANGELOG.md",
     "bug_tracker_uri" => "https://github.com/vincenzor/letter-ruby/issues",
     "rubygems_mfa_required" => "true"
   }
 
-  spec.files = Dir["lib/**/*.rb"] + ["README.md", "LICENSE"]
+  spec.files = Dir["lib/**/*.rb"] + ["README.md", "CHANGELOG.md", "LICENSE"]
   spec.require_paths = ["lib"]
 end

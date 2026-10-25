@@ -109,9 +109,9 @@ module Letterapp
     def send_email(to:, subject:, html: nil, text: nil, from: nil, from_name: nil,
                    reply_to: nil, headers: nil, tag: nil, metadata: nil,
                    idempotency_key: nil)
-      raise Error, "send_email: to is required" if blank?(to)
-      raise Error, "send_email: subject is required" if blank?(subject)
-      raise Error, "send_email: provide html, text, or both" if blank?(html) && blank?(text)
+      raise Error, "send_email: to is required" if missing?(to)
+      raise Error, "send_email: subject is required" if missing?(subject)
+      raise Error, "send_email: provide html, text, or both" if missing?(html) && missing?(text)
 
       body = { "to" => to, "subject" => subject }
       {
@@ -248,7 +248,7 @@ module Letterapp
     end
 
     def serialize_identify(user_id, email, traits, timezone, timestamp, message_id)
-      raise Error, "identify: user_id is required" if blank?(user_id)
+      raise Error, "identify: user_id is required" if missing?(user_id)
 
       item = {
         "type" => "identify",
@@ -264,8 +264,8 @@ module Letterapp
     end
 
     def serialize_group(user_id, account_id, name, traits, timestamp, message_id)
-      raise Error, "group: user_id is required" if blank?(user_id)
-      raise Error, "group: account_id is required" if blank?(account_id)
+      raise Error, "group: user_id is required" if missing?(user_id)
+      raise Error, "group: account_id is required" if missing?(account_id)
 
       item = {
         "type" => "group",
@@ -281,8 +281,8 @@ module Letterapp
     end
 
     def serialize_track(user_id, event, properties, timestamp, message_id)
-      raise Error, "track: user_id is required" if blank?(user_id)
-      raise Error, "track: event is required" if blank?(event)
+      raise Error, "track: user_id is required" if missing?(user_id)
+      raise Error, "track: event is required" if missing?(event)
 
       item = {
         "type" => "track",
@@ -303,7 +303,10 @@ module Letterapp
       value.to_s
     end
 
-    def blank?(value)
+    # Not named +blank?+: Active Support defines Object#blank?, and its
+    # +present?+ and +presence+ call it, so a private blank?(value) here would
+    # shadow it and make +client.present?+ raise ArgumentError in a Rails app.
+    def missing?(value)
       value.nil? || value.to_s.empty?
     end
 
