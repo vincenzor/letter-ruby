@@ -34,8 +34,9 @@ module Letterapp
   # A Letter client.
   #
   # Long-running server (default): identify / group / track enqueue calls that a
-  # background thread auto-batches and flushes every 100ms or 50 events. Call
-  # +close+ before the process exits.
+  # background thread auto-batches and flushes every 100ms or 50 events. The
+  # thread starts with the first queued call. Call +close+ before the process
+  # exits.
   #
   # Serverless: pass flush_at: 1 and call +flush+ at the end of each invocation.
   #
@@ -69,9 +70,7 @@ module Letterapp
       @cond = ConditionVariable.new
       @send_mutex = Mutex.new
       @closed = false
-
-      @thread = Thread.new { loop_run }
-      at_exit { close }
+      @thread = nil # see start_worker
     end
 
     # Queue an identify call (creates or updates a contact).
@@ -154,8 +153,21 @@ module Letterapp
           return
         end
         @queue << item
+        start_worker
         @cond.signal
       end
+    end
+
+    # Starts the batching thread (and the at_exit hook that drains it) on the
+    # first queued call rather than in +initialize+. Mail builds a new delivery
+    # method, and so a new client, for every message; each one used to leave
+    # an idle thread behind. Also restarts a dead thread, which is what a
+    # forked child inherits from its parent. Called with @mutex held.
+    def start_worker
+      return if @thread&.alive?
+
+      at_exit { close } if @thread.nil?
+      @thread = Thread.new { loop_run }
     end
 
     def take_batch

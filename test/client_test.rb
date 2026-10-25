@@ -56,11 +56,7 @@ class ClientTest < Minitest::Test
   end
 
   def test_send_email_accepts_text_only
-    sent = []
-    @client.define_singleton_method(:request) do |path, body, **|
-      sent << [path, body]
-      { "id" => "em_123" }
-    end
+    sent = stub_request(@client)
 
     result = @client.send_email(to: "alice@example.com", subject: "Hi", text: "Hi")
 
@@ -68,7 +64,65 @@ class ClientTest < Minitest::Test
     assert_equal [["/v1/send", { "to" => "alice@example.com", "subject" => "Hi", "text" => "Hi" }]], sent
   end
 
+  # Mail builds a new delivery method, and so a new client, for every message.
+  # Up to 0.2.1 each of those clients started a thread that never exited.
+  def test_send_email_never_starts_a_thread
+    before = Thread.list
+    client = Letterapp::Client.new(api_key: "test")
+    stub_request(client)
+
+    client.send_email(to: "alice@example.com", subject: "Hi", text: "Hi")
+
+    assert_empty Thread.list - before
+  ensure
+    client&.close
+  end
+
+  def test_queued_calls_start_one_thread_and_are_sent
+    sent = stub_request(@client)
+    before = Thread.list
+
+    @client.identify(user_id: "user_123", email: "alice@example.com")
+    @client.track(user_id: "user_123", event: "Signed Up")
+
+    assert_equal 1, (Thread.list - before).size
+    @client.close
+    assert_empty Thread.list - before
+    assert_equal %w[identify track], sent_items(sent).map { |item| item["type"] }
+  end
+
+  # A forked child gets the parent's client with a dead copy of its thread.
+  def test_restarts_a_dead_thread
+    client = Letterapp::Client.new(api_key: "test", flush_interval: 10)
+    sent = stub_request(client)
+    before = Thread.list
+
+    client.track(user_id: "user_123", event: "First")
+    (Thread.list - before).each { |thread| thread.kill.join }
+    client.track(user_id: "user_123", event: "Second")
+
+    assert_equal 1, (Thread.list - before).size
+    client.close
+    assert_equal %w[First Second], sent_items(sent).map { |item| item["event"] }
+  ensure
+    client&.close
+  end
+
   private
+
+  # Replaces the client's HTTP call; returns the [path, body] pairs it receives.
+  def stub_request(client)
+    sent = []
+    client.define_singleton_method(:request) do |path, body, **|
+      sent << [path, body]
+      { "id" => "em_123" }
+    end
+    sent
+  end
+
+  def sent_items(sent)
+    sent.flat_map { |_path, body| body["batch"] }
+  end
 
   def assert_raises_message(message, &block)
     error = assert_raises(Letterapp::Error, &block)

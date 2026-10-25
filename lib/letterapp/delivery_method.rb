@@ -82,14 +82,13 @@ module Letterapp
 
     private
 
+    # Mail builds a new delivery method for every message, so this client
+    # lives for one message. That's cheap: it only calls send_email, which
+    # bypasses the queue, so the client never starts its batching thread.
     def client
       @client ||= Client.new(
         api_key: settings.fetch(:api_key) { ENV.fetch("LETTER_API_KEY") },
-        base_url: settings[:base_url] || ENV["LETTER_BASE_URL"] || DEFAULT_BASE_URL,
-        # This client only ever calls send_email, which bypasses the queue, so
-        # the batching thread would sit idle forever. Setting flush_at to 1
-        # keeps it from being started for nothing.
-        flush_at: 1
+        base_url: settings[:base_url] || ENV["LETTER_BASE_URL"] || DEFAULT_BASE_URL
       )
     end
 
