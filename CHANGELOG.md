@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.3 - 2026-11-03
+
+### Fixed
+
+- A Rails app configured as the README says now boots.
+  `config.action_mailer.letter_settings = { ... }` raised
+  `NoMethodError: undefined method 'letter_settings=' for class
+  ActionMailer::Base` as soon as ActionMailer::Base loaded: during boot with
+  eager loading (production, `assets:precompile`), otherwise on the first
+  mail sent. The gem added `:letter` from a Railtie initializer that ran
+  after Action Mailer's own, so the settings were applied before
+  `letter_settings=` existed. The gem now registers the delivery method when
+  it is required, ahead of Action Mailer's initializer, and the Railtie is
+  gone. Apps that worked around this by dropping `letter_settings` and
+  relying on `ENV["LETTER_API_KEY"]` keep working.
+
 ## 0.2.2 - 2026-10-25
 
 ### Fixed

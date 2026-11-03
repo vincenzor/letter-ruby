@@ -5,16 +5,21 @@ require_relative "client"
 module Letterapp
   # ActionMailer delivery method backed by Letter's transactional API.
   #
-  # Register it and every existing mailer, view and `deliver_later` keeps
+  # Select it and every existing mailer, view and `deliver_later` keeps
   # working unchanged - Rails builds the same Mail::Message it always did, and
   # this class is only responsible for putting it on the wire:
-  #
-  #   # config/initializers/letter.rb
-  #   ActionMailer::Base.add_delivery_method :letter, Letterapp::DeliveryMethod
   #
   #   # config/environments/production.rb
   #   config.action_mailer.delivery_method = :letter
   #   config.action_mailer.letter_settings = { api_key: ENV["LETTER_API_KEY"] }
+  #
+  # letterapp.rb registers `:letter` with ActionMailer, so a Rails app doesn't
+  # call add_delivery_method itself. Calling it again from an initializer
+  # resets letter_settings to the defaults it is given. ActionMailer without
+  # Rails, with the gem required before Active Support, registers it by hand:
+  #
+  #   ActionMailer::Base.add_delivery_method :letter, Letterapp::DeliveryMethod,
+  #                                          api_key: ENV["LETTER_API_KEY"]
   #
   # Multipart mail maps cleanly: Letter takes an HTML part and a text part, and
   # a Mail::Message carries exactly those two. Attachments and inline images do

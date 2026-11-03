@@ -5,9 +5,22 @@ require_relative "letterapp/client"
 require_relative "letterapp/delivery_method"
 
 # In a Rails app, register `:letter` as an ActionMailer delivery method so the
-# host only has to select it. Guarded so the gem keeps working (and stays
+# host only has to select it:
+#
+#   config.action_mailer.delivery_method = :letter
+#   config.action_mailer.letter_settings = { api_key: ENV["LETTER_API_KEY"] }
+#
+# The hook is registered here, when Bundler requires the gem, and not from a
+# Railtie initializer. Load hooks run in the order they are registered, and
+# Action Mailer's own initializer registers the one that applies
+# config.action_mailer.*; ours has to come first, or letter_settings= doesn't
+# exist yet when that runs. Guarded so the gem keeps working (and stays
 # dependency-free) outside Rails.
-require_relative "letterapp/railtie" if defined?(::Rails::Railtie)
+if defined?(::ActiveSupport.on_load)
+  ActiveSupport.on_load(:action_mailer) do
+    add_delivery_method :letter, Letterapp::DeliveryMethod
+  end
+end
 
 # Official Ruby client for letter.app.
 #
